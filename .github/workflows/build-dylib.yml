@@ -1,0 +1,45 @@
+name: build-dylib
+
+# 手动触发：仓库页面 Actions -> build-dylib -> Run workflow
+# 自动触发：push 到任意分支
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # macos-14 是 Apple Silicon，自带完整 Xcode + iPhoneOS SDK
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 显示工具链版本
+        run: |
+          xcodebuild -version
+          echo "SDK: $(xcrun --sdk iphoneos --show-sdk-path)"
+
+      - name: 编译 WatermarkGuard.dylib (arm64 / iOS 14+)
+        run: make
+
+      - name: ad-hoc 签名（真机加载需要）
+        run: |
+          codesign -f -s - WatermarkGuard.dylib
+          codesign -dv WatermarkGuard.dylib 2>&1 || true
+
+      - name: 校验产物
+        run: |
+          file WatermarkGuard.dylib
+          xcrun --sdk iphoneos otool -hv WatermarkGuard.dylib | head -n 6
+          xcrun --sdk iphoneos otool -L WatermarkGuard.dylib
+          echo "--- 编译告警（不阻断构建，仅供参考）---"
+          make clean >/dev/null 2>&1 || true
+          make 2>&1 | grep -i "warning:" || echo "无告警"
+
+      - name: 上传 dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatermarkGuard-dylib
+          path: WatermarkGuard.dylib
+          if-no-files-found: error
+          retention-days: 30
